@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* Leaflet draws a browser focus box around clicked SVG markers; selection is shown by the marker style instead. */
+.leaflet-interactive:focus {
+  outline: none;
+}

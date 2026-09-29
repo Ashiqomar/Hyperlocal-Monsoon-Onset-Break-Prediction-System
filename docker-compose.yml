@@ -1,0 +1,98 @@
+# Development (default):   docker compose up --build
+#   -> db + backend (:8000) + Vite dev server (:5173)
+#
+# Production-like (profile "prod"; see DEPLOY.md):
+#   cp .env.example .env    # then set POSTGRES_PASSWORD etc.
+#   docker compose --profile prod up -d --build web
+#   -> db-prod + api (internal) + web (nginx serving the built app, on :8080)
+# Name the `web` service so only the prod stack starts; without a service name
+# the dev services start too.
+
+services:
+  # ---------------------------------------------------------------- dev
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: monsoon
+      POSTGRES_PASSWORD: monsoon
+      POSTGRES_DB: monsoon
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monsoon -d monsoon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://monsoon:monsoon@db:5432/monsoon
+      CORS_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    environment:
+      BACKEND_URL: http://backend:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  # ---------------------------------------------------------------- prod
+  db-prod:
+    profiles: ["prod"]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-monsoon}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: ${POSTGRES_DB:-monsoon}
+    volumes:
+      - pgdata-prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    profiles: ["prod"]
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-monsoon}:${POSTGRES_PASSWORD:-change-me}@db-prod:5432/${POSTGRES_DB:-monsoon}
+      # Browser calls arrive via nginx on the same origin, so CORS only matters
+      # if you also call the API from another site.
+      CORS_ORIGINS: ${PUBLIC_APP_URL:-http://localhost:8080}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-http://localhost:8080}
+      NOTIFY_REGIONAL_LANGUAGE: ${NOTIFY_REGIONAL_LANGUAGE:-mr}
+    # Not published: only reachable through nginx (web).
+    expose:
+      - "8000"
+    depends_on:
+      db-prod:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    profiles: ["prod"]
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+    environment:
+      BACKEND_URL: http://api:8000
+    ports:
+      - "${APP_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  pgdata-prod:
