@@ -16,12 +16,26 @@ services:
         fromDatabase:
           name: monsoon-db
           property: connectionString
-      # Set these in the dashboard once the Vercel URL is known:
-      - key: CORS_ORIGINS # e.g. https://monsoon-twin.vercel.app
+      - key: CORS_ORIGIN_REGEX
+        value: "https://.*(\\.onrender\\.com|\\.vercel\\.app)"
+      - key: CORS_ORIGINS # optional explicit list, e.g. https://monsoon-frontend.onrender.com
         sync: false
-      - key: PUBLIC_APP_URL # same Vercel URL (used in WhatsApp message links)
+      - key: PUBLIC_APP_URL # URL used in WhatsApp message links
         sync: false
-      - key: CORS_ORIGIN_REGEX # optional, e.g. https://monsoon-twin-.*\.vercel\.app for previews
+
+  - type: web
+    name: monsoon-frontend
+    runtime: static
+    rootDir: frontend
+    plan: free
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: VITE_API_BASE # e.g. https://monsoon-backend.onrender.com (without trailing slash)
         sync: false
 
 databases:

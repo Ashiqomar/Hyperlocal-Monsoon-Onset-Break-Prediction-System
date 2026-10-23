@@ -10,31 +10,79 @@ The app uses synthetic data, so a fresh deploy seeds 10 blocks and 30 panchayats
 - **No authentication yet.** Anyone with the URLs can use the officer dashboard, review queue and feedback admin page. Don't share them publicly.
 - WhatsApp sending is **log only** (see `backend/app/services/notify.py`).
 
-## 1. Backend
+## 1. Deploying on Render
 
-Either option gives you a URL like `https://monsoon-backend.onrender.com`. Check it with `GET /health`, which should return `"database": {"status": "ok", "dialect": "postgresql"}`.
+You can deploy the entire stack (Backend + Database + Frontend) directly on Render.
 
-### Option A: Render (Blueprint)
+### Option A: Render Blueprint (Recommended — 1-Click)
 
-1. Push the repo to GitHub.
-2. Render dashboard → **New → Blueprint** → pick the repo. `render.yaml` creates the web service (`backend/`, health check `/health`) and a Postgres database, and wires up `DATABASE_URL`.
-3. When prompted (or later under *Environment*), set:
-   - `CORS_ORIGINS`: your Vercel URL, e.g. `https://monsoon-twin.vercel.app` (comma-separate several)
-   - `PUBLIC_APP_URL`: the same Vercel URL (used in WhatsApp message links)
-   - `CORS_ORIGIN_REGEX` (optional): e.g. `https://monsoon-twin-.*\.vercel\.app` to allow Vercel preview deploys
+1. Make sure your latest changes are pushed to GitHub:
+   ```bash
+   git add .
+   git commit -m "Configure Render blueprint and CORS"
+   git push origin main
+   ```
+2. Go to the [Render Dashboard](https://dashboard.render.com).
+3. Click **New +** → **Blueprint**.
+4. Connect and select your GitHub repository (`Hyperlocal-Monsoon-Onset-Break-Prediction-System`).
+5. Render will automatically read `render.yaml` and discover:
+   - **`monsoon-backend`** (Python Web Service)
+   - **`monsoon-frontend`** (Static Site with SPA rewrite rules)
+   - **`monsoon-db`** (PostgreSQL Database)
+6. Click **Apply**.
+7. Once deployed, find your backend URL (e.g. `https://monsoon-backend.onrender.com`):
+   - In your Render dashboard, navigate to **`monsoon-frontend`** → **Environment**.
+   - Set `VITE_API_BASE` = `https://monsoon-backend.onrender.com` (use your actual backend URL, no trailing slash).
+   - Click **Save Changes** and trigger a **Manual Deploy → Deploy latest commit** on `monsoon-frontend` (Vite requires build-time variables).
+   - In **`monsoon-backend`** → **Environment**, set `PUBLIC_APP_URL` to your frontend URL (e.g. `https://monsoon-frontend.onrender.com`).
 
-   You can deploy the backend first with a placeholder and update these after step 2.
+*Note on CORS:* The backend already allows all `https://.*\.onrender\.com` domains by default via `CORS_ORIGIN_REGEX`, so communication works immediately!
 
-### Option B: Railway
+---
 
-1. **New Project → Deploy from GitHub repo**, and set the service's **Root Directory** to `backend`. It builds `backend/Dockerfile` (`railway.json` sets the `/health` health check and a single replica).
-2. **+ New → Database → PostgreSQL**. In the backend service's *Variables*, add `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
-3. Add `CORS_ORIGINS`, `PUBLIC_APP_URL` (and optionally `CORS_ORIGIN_REGEX`) as in Render step 3.
-4. *Settings → Networking → Generate Domain* to get the public URL.
+### Option B: Manual Setup on Render (Step-by-Step)
 
-Notes for both:
-- Both platforms provide `postgres://…` URLs. The backend rewrites these to the psycopg 3 driver automatically.
-- `$PORT` is provided by the platform.
+If you prefer setting up each component manually on Render instead of using the blueprint:
+
+#### Step 1: Create PostgreSQL Database
+1. In Render Dashboard, click **New +** → **PostgreSQL**.
+2. Name: `monsoon-db`, Region: choose closest to you, Plan: **Free**.
+3. Click **Create Database**.
+4. Copy the **Internal Database URL** (or External Database URL).
+
+#### Step 2: Deploy Backend Web Service
+1. Click **New +** → **Web Service**.
+2. Select your repository.
+3. Configure the settings:
+   - **Name:** `monsoon-backend`
+   - **Root Directory:** `backend`
+   - **Runtime:** `Python 3`
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers --forwarded-allow-ips='*'`
+   - **Plan:** Free
+4. Under **Advanced** → **Health Check Path**, enter `/health`.
+5. Under **Environment Variables**, add:
+   - `PYTHON_VERSION`: `3.11.9`
+   - `DATABASE_URL`: paste your database connection string
+   - `CORS_ORIGIN_REGEX`: `https://.*(\.onrender\.com|\.vercel\.app)`
+6. Click **Deploy Web Service**.
+7. Once live, test `https://<your-backend-url>/health`. It should return status `"ok"`.
+
+#### Step 3: Deploy Frontend Static Site
+1. Click **New +** → **Static Site**.
+2. Select your repository.
+3. Configure settings:
+   - **Name:** `monsoon-frontend`
+   - **Root Directory:** `frontend`
+   - **Build Command:** `npm install && npm run build`
+   - **Publish Directory:** `dist`
+4. Under **Environment Variables**, add:
+   - `VITE_API_BASE`: `https://<your-backend-url>` (no trailing slash)
+5. Under **Redirects/Rewrites**:
+   - Source: `/*`
+   - Destination: `/index.html`
+   - Action: `Rewrite`
+6. Click **Create Static Site**.
 
 ## 2. Frontend on Vercel
 
